@@ -25,3 +25,5 @@ vim.keymap.set('v', 'aa', function() require'align'.align_to_char()       end, N
 vim.keymap.set('v', 'aw', function() require'align'.align_to_string()     end, NS) -- Align to word
 vim.keymap.set('v', 'ar', function() require'align'.align_to_string(true) end, NS) -- Align to pattern
 ```
+
+![Usage Gif](align.gif)
