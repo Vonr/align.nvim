@@ -2,7 +2,7 @@
 
 ### align.nvim is a minimal plugin for NeoVim for aligning lines
 
-align.nvim supports aligning lines to the mmost feasible leftward or rightmost character, string, or Lua pattern.
+align.nvim supports aligning lines to the most feasible leftward or rightmost character, string, or Lua pattern.
 
 Escapes for Lua patterns can either be % or \\, the latter both of which can be escaped again with another \\.
 
@@ -17,18 +17,23 @@ use 'Vonr/align.nvim'
 
 Bind the functions to your preferred bindings and use them in Visual or Visual Lines mode.
 
-Example:
+This plugin does not provide any default keybinds or commands.
+
+Preview mode is opt-in as it currently messes up the undotree, please open a Pull Request if you have any ideas to rectify this.
+
+Example keybinds:
 
 ```lua
+-- align_to_char(length, reverse, preview)
+-- align_to_string(is_pattern, reverse, preview)
+-- align(str, reverse)
+
 local NS = { noremap = true, silent = true }
 
-vim.keymap.set('v', 'aa', function() require'align'.align_to_char()              end, NS) -- Align to rightmost character
-vim.keymap.set('v', 'aq', function() require'align'.align_to_char(2)             end, NS) -- Align to rightmost 2 characters
-vim.keymap.set('v', 'ac', function() require'align'.align_to_char(1, true)       end, NS) -- Align to most feasible leftward character
-vim.keymap.set('v', 'aw', function() require'align'.align_to_string()            end, NS) -- Align to rightmost string
-vim.keymap.set('v', 'as', function() require'align'.align_to_string(false, true) end, NS) -- Align to most feasible leftward character
-vim.keymap.set('v', 'ar', function() require'align'.align_to_string(true)        end, NS) -- Align to rightmost pattern
-vim.keymap.set('v', 'ae', function() require'align'.align_to_string(true, true)  end, NS) -- Align to most feasible leftward pattern
+vim.keymap.set('x', 'aa', function() require'align'.align_to_char(1, true)             end, NS) -- Aligns to 1 character, looking left
+vim.keymap.set('x', 'as', function() require'align'.align_to_char(2, true, true)       end, NS) -- Aligns to 2 characters, looking left and with previews
+vim.keymap.set('x', 'aw', function() require'align'.align_to_string(false, true, true) end, NS) -- Aligns to a string, looking left and with previews
+vim.keymap.set('x', 'ar', function() require'align'.align_to_string(true, true, true)  end, NS) -- Aligns to a Lua pattern, looking left and with previews
 ```
 
 ![Usage Gif](align.gif)
