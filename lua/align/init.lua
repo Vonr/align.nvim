@@ -36,7 +36,28 @@ local function escape(str, is_pattern)
     return str
 end
 
-local function align(str, reverse, preview)
+local function align(str, reverse, preview, marks)
+    local sr, sc, er, ec
+    if marks then
+        sr, sc, er, ec = unpack(marks)
+    else
+        _, sr, sc, _ = unpack(vim.fn.getpos('v'))
+        _, er, ec, _ = unpack(vim.fn.getcurpos())
+    end
+
+    if not preview then
+        vim.api.nvim_buf_clear_namespace(0, -1, 0, -1)
+    else if marks then
+        for i = sr, er do
+            vim.api.nvim_buf_add_highlight(0, -1, 'Visual', i - 1, 0, -1)
+        end
+    end
+    end
+
+    if sr == ec then
+        return
+    end
+
     if not str or str == '' then
         return
     end
@@ -44,11 +65,7 @@ local function align(str, reverse, preview)
     preview = not not preview
 
     restore()
-    local _, sr, sc, _ = unpack(vim.fn.getpos('v'))
-    local _, er, ec, _ = unpack(vim.fn.getcurpos())
-    if er == sr then
-        return
-    end
+
     if er < sr then
         er, sr = sr, er
     end
@@ -106,7 +123,6 @@ local function align(str, reverse, preview)
         return
     end
 
-    -- local rectified = {}
     for _, pos in ipairs(positions) do
         local r, c = unpack(pos)
         local curr = lines[r - sr + 1]
@@ -119,7 +135,13 @@ local function align(str, reverse, preview)
 
     if not preview then
         vim.api.nvim_input('<Esc>')
+    else if marks then
+        for i = sr, er do
+            vim.api.nvim_buf_add_highlight(0, -1, 'Visual', i - 1, 0, -1)
+        end
     end
+    end
+    print(' ')
 
     return 1
 end
@@ -127,7 +149,7 @@ end
 local function input(str)
     local ch = vim.fn.getcharstr()
     if ch == vim.api.nvim_replace_termcodes('<Esc>', true, false, true) then
-        print()
+        print(' ')
         return 0, nil
     end
     if ch == vim.api.nvim_replace_termcodes('<CR>', true, false, true) then
@@ -141,12 +163,30 @@ local function input(str)
     end
 end
 
-local function align_wrapper(str, reverse)
-    align(str, reverse, false)
+local function align_wrapper(str, reverse, marks)
+    if marks and marks.sr then
+        local sr, er = marks.sr, marks.er
+        if sr == er then
+            return
+        end
+        for i = sr, er do
+            vim.api.nvim_buf_add_highlight(0, -1, 'Visual', i - 1, 0, -1)
+        end
+    end
+    align(str, reverse, false, marks)
 end
 
 
-local function align_to_char(length, reverse, preview)
+local function align_to_char(length, reverse, preview, marks)
+    if marks and marks.sr then
+        local sr, er = marks.sr, marks.er
+        if sr == er then
+            return
+        end
+        for i = sr, er do
+            vim.api.nvim_buf_add_highlight(0, -1, 'Visual', i - 1, 0, -1)
+        end
+    end
     length = math.max(length, 1)
     preview = not not preview and length > 1
     local prompt = 'Enter ' .. (length > 1 and length .. ' characters: ' or 'a character: ')
@@ -166,13 +206,21 @@ local function align_to_char(length, reverse, preview)
             break
         end
         str = new_str
-        align(str, not not reverse, true)
+        align(str, not not reverse, true, marks)
     end
-    align_wrapper(str, not not reverse)
-    print()
+    align_wrapper(str, not not reverse, marks)
 end
 
-local function align_to_string(is_pattern, reverse, preview)
+local function align_to_string(is_pattern, reverse, preview, marks)
+    if marks and marks.sr then
+        local sr, er = marks.sr, marks.er
+        if sr == er then
+            return
+        end
+        for i = sr, er do
+            vim.api.nvim_buf_add_highlight(0, -1, 'Visual', i - 1, 0, -1)
+        end
+    end
     preview = not not preview
     is_pattern = not not is_pattern
     local prompt = is_pattern and 'Enter pattern: ' or 'Enter string: '
@@ -188,6 +236,7 @@ local function align_to_string(is_pattern, reverse, preview)
         end
         if err == 0 then
             -- TODO: undo such that no history is kept
+            print(' ')
             vim.cmd[[redraw]]
             return
         end
@@ -197,14 +246,52 @@ local function align_to_string(is_pattern, reverse, preview)
         str = new_str
 
         local escaped = escape(str, is_pattern)
-        align(escaped, not not reverse, true)
+        align(escaped, not not reverse, true, marks)
     end
     -- TODO: undo such that no history is kept
-    align_wrapper(escape(str, is_pattern), not not reverse)
+    align_wrapper(escape(str, is_pattern), not not reverse, marks)
+end
+
+local function operator(fn, opts)
+    opts = opts or {}
+    local old_func = vim.go.operatorfunc
+
+    _G.op_align = function()
+        local sr, sc = unpack(vim.api.nvim_buf_get_mark(0, '['))
+        local er, ec = unpack(vim.api.nvim_buf_get_mark(0, ']'))
+
+        if not sr or sr == er then
+            vim.go.operatorfunc = old_func
+            _G.op_align = nil
+            return
+        end
+
+        for i = sr, er do
+            vim.api.nvim_buf_add_highlight(0, -1, 'Visual', i - 1, 0, -1)
+        end
+
+        local marks = {sr, sc, er, ec}
+        if fn == align_to_char then
+            align_to_char(opts.length, opts.reverse, opts.preview, marks)
+        elseif fn == align_to_string then
+            align_to_string(opts.is_pattern, opts.reverse, opts.preview, marks)
+        elseif fn == align_wrapper then
+            align_wrapper(opts.str, opts.reverse, marks)
+        else
+            error('Unknown function: ' .. fn)
+        end
+        vim.api.nvim_buf_clear_namespace(0, -1, 0, -1)
+
+        vim.go.operatorfunc = old_func
+        _G.op_align = nil
+    end
+    vim.go.operatorfunc = 'v:lua.op_align'
+    vim.api.nvim_feedkeys('g@', 'n', false)
 end
 
 return {
     align = align_wrapper,
     align_to_char = align_to_char,
     align_to_string = align_to_string,
+    operator = operator,
 }
