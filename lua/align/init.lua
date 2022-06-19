@@ -18,6 +18,11 @@ local function restore()
     )
 end
 
+-- By @Chromosore
+local function str_insert(dst, pos, src)
+    return dst:sub(1, pos-1) .. src .. dst:sub(pos)
+end
+
 local function escape(str, is_pattern)
     if not is_pattern then
         str = vim.fn.escape(str, '^$()%.[]*+-?')
@@ -127,7 +132,7 @@ local function align(str, reverse, preview, marks)
         local r, c = unpack(pos)
         local curr = lines[r - sr + 1]
         if c <= target then
-            vim.api.nvim_buf_set_lines(0, r - 1, r, true, {string.insert(curr, c, (' '):rep(target - c + (reverse and 1 or 0)))})
+            vim.api.nvim_buf_set_lines(0, r - 1, r, true, {str_insert(curr, c, (' '):rep(target - c + (reverse and 1 or 0)))})
         else
             vim.api.nvim_buf_set_lines(0, r - 1, r, true, {string.sub(curr, 1, target) .. string.sub(curr, c)})
         end
