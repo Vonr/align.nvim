@@ -211,9 +211,9 @@ local function align_to_char(length, reverse, preview, marks)
             break
         end
         str = new_str
-        align(str, not not reverse, true, marks)
+        align(escape(str), not not reverse, true, marks)
     end
-    align_wrapper(str, not not reverse, marks)
+    align_wrapper(escape(str), not not reverse, marks)
 end
 
 local function align_to_string(is_pattern, reverse, preview, marks)
