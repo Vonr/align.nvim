@@ -71,4 +71,4 @@ vim.keymap.set(
 )
 ```
 
-![Usage Gif](align.gif)
+![Usage Gif](https://user-images.githubusercontent.com/24369412/194233191-c0b36092-9f33-4f6f-8181-548e2a3d0b9c.gif)
