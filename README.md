@@ -64,7 +64,7 @@ vim.keymap.set(
         local a = require'align'
         a.operator(
             a.align_to_char,
-            { reverse = true }
+            { length = 1, reverse = true }
         )
     end,
     NS
