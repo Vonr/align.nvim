@@ -1,75 +1,162 @@
-local real = nil
+---@class Marks
+---@field sr number
+---@field sc number
+---@field er number
+---@field ec number
 
-local function restore()
-    if not real then
-        return
+---@class AlignOptions
+---@field reverse boolean?
+---@field preview boolean?
+---@field regex boolean?
+---@field marks Marks?
+---@field callback (fun(): any)?
+
+---@class AlignToCharOptions: AlignOptions
+---@field length integer?
+
+---@class AlignWrapperOptions: AlignOptions
+---@field pattern string?
+
+---@class AlignInnerOptions: AlignOptions
+---@field pattern string?
+
+
+---@param sr integer
+---@param sc integer
+---@param er integer
+---@param ec integer
+local function highlight(sr, sc, er, ec)
+    local mode = vim.fn.mode()
+    local mode_V = mode == 'V'
+    local mode_vb = mode == ''
+
+    if sr > ec then
+        sr, sc, er, ec = er, ec, sr, sc
     end
-    local s, e, t = unpack(real)
-    real = nil
-    if s < 2 then
-        return
+
+    if mode_vb then
+        for i = sr, er do
+            vim.api.nvim_buf_add_highlight(0, -1, 'Visual', i - 1, sc, ec)
+        end
+    else
+        vim.api.nvim_buf_add_highlight(0, -1, 'Visual', sr, mode_V and 0 or sc, -1)
+        for i = sr + 1, er - 1 do
+            vim.api.nvim_buf_add_highlight(0, -1, 'Visual', i - 1, 0, -1)
+        end
+        vim.api.nvim_buf_add_highlight(0, -1, 'Visual', er - 1, 0, mode_V and -1 or ec)
     end
-    vim.api.nvim_buf_set_lines(
-        0,
-        s - 1,
-        e,
-        true,
-        t
-    )
 end
 
--- By @Chromosore
+
+---@param marks Marks?
+---@return function
+local function tmpbuf(marks)
+    local real = vim.api.nvim_get_current_buf()
+    local ft = vim.bo.filetype
+    local real_lines = vim.api.nvim_buf_get_lines(real, 0, -1, false)
+    local curpos = vim.api.nvim_win_get_cursor(0)
+    local mode = vim.fn.mode()
+    local commands = {
+        ['v'] = 'normal! v',
+        ['V'] = 'normal! V',
+        [''] = 'normal! ',
+    }
+    local command = function() vim.cmd(commands[mode]) end
+    local sr, sc, er, ec
+
+    if marks then
+        sr, sc, er, ec = marks.sr, marks.sc, marks.er, marks.ec
+    else
+        _, sr, sc, _ = unpack(vim.fn.getpos('v') or {0, 0, 0, 0})
+        _, er, ec, _ = unpack(vim.fn.getcurpos())
+
+        -- if sr > er or (sr == er and sc > ec) then
+        --     sr, sc, er, ec = er, ec, sr, sc
+        -- end
+        vim.fn.setpos(".", { real, sr, sc })
+        command()
+        vim.fn.setpos(".", { real, er, ec })
+    end
+
+    local tmp = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(tmp, 0, -1, false, real_lines)
+    vim.api.nvim_set_current_buf(tmp)
+    vim.bo.filetype = ft
+
+    if marks then
+        vim.api.nvim_buf_set_mark(tmp, '[', sr, sc, {})
+        vim.api.nvim_buf_set_mark(tmp, ']', er, ec, {})
+    else
+        vim.api.nvim_buf_set_mark(tmp, '<', sr, sc, {})
+        vim.api.nvim_buf_set_mark(tmp, '>', er, ec, {})
+    end
+    vim.fn.setpos(".", { tmp, sr, sc })
+    command()
+    vim.fn.setpos(".", { tmp, er, ec })
+    vim.api.nvim_win_set_cursor(0, curpos)
+    vim.cmd('normal! zz')
+
+    highlight(sr, sc, er, ec)
+
+    return function()
+        vim.api.nvim_buf_delete(tmp, { force = true, unload = false })
+        vim.api.nvim_set_current_buf(real)
+
+        if marks then
+            vim.api.nvim_buf_set_mark(real, '[', sr, sc, {})
+            vim.api.nvim_buf_set_mark(real, ']', er, ec, {})
+        else
+            vim.api.nvim_buf_set_mark(real, '<', sr, sc, {})
+            vim.api.nvim_buf_set_mark(real, '>', er, ec, {})
+            vim.fn.setpos(".", { real, sr, sc })
+            command()
+            vim.fn.setpos(".", { real, er, ec })
+        end
+    end
+end
+
+---By @Chromosore
+---Inserts a string `src` into `dst` at `pos`
+---@param dst string
+---@param pos integer
+---@param src string
+---@return string
 local function str_insert(dst, pos, src)
     return dst:sub(1, pos-1) .. src .. dst:sub(pos)
 end
 
-local function escape(str, is_pattern)
-    if not is_pattern then
-        str = vim.fn.escape(str, '^$()%.[]*+-?')
-    end
-    if #str > 1 then
-        local double_backslashes = {}
-        for match in str:gmatch('(\\\\)') do
-            table.insert(double_backslashes, str:find(match, (double_backslashes[#double_backslashes] or 0) + 1))
-        end
-        str = str:gsub('\\', '%%')
-
-        for _, match in ipairs(double_backslashes) do
-            str = str:sub(1, match - 2) .. [[\]] .. str:sub(match + 1)
-        end
-    end
-    return str
-end
-
-local function align(str, reverse, preview, marks)
+---@param pattern string
+---@param opts AlignOptions?
+local function align(pattern, opts)
+    opts = opts or {}
     local sr, sc, er, ec
-    if marks then
-        sr, sc, er, ec = unpack(marks)
+    if opts.marks then
+        sr, sc, er, ec = opts.marks.sr, opts.marks.sc, opts.marks.er, opts.marks.ec
     else
-        _, sr, sc, _ = unpack(vim.fn.getpos('v'))
+        _, sr, sc, _ = unpack(vim.fn.getpos('v') or {0, 0, 0, 0})
         _, er, ec, _ = unpack(vim.fn.getcurpos())
-    end
-
-    if not preview then
-        vim.api.nvim_buf_clear_namespace(0, -1, 0, -1)
-    else if marks then
-        for i = sr, er do
-            vim.api.nvim_buf_add_highlight(0, -1, 'Visual', i - 1, 0, -1)
+        if sr > er or (sr == er and sc > ec) then
+            sr, sc, er, ec = er, ec, sr, sc
         end
     end
+
+    local mode = vim.fn.mode()
+    local mode_v = mode == 'v'
+    local mode_vb = mode == ''
+
+    if opts.preview and opts.marks then
+        highlight(sr, sc, er, ec)
     end
 
     if sr == ec then
         return
     end
 
-    if not str or str == '' then
+    if not pattern or pattern == '' then
         return
     end
-    reverse = not not reverse
-    preview = not not preview
-
-    restore()
+    opts.reverse = not not opts.reverse
+    opts.preview = not not opts.preview
 
     if er < sr then
         er, sr = sr, er
@@ -78,50 +165,111 @@ local function align(str, reverse, preview, marks)
     local target = 0
     local positions = {}
 
-    local visual = vim.fn.mode() == 'v'
-
-    local lines
-    if preview then
-        lines = vim.api.nvim_buf_get_lines(0, sr - 1, er, true)
-        if not real then
-            real = {sr, er, lines}
-        end
-    else
-        lines = real and real[3] or vim.api.nvim_buf_get_lines(0, sr - 1, er, true)
-        real = nil
-    end
+    local lines = vim.api.nvim_buf_get_lines(0, sr - 1, er, true)
 
     if not lines then
         return
     end
 
-    for i = sr, er do
-        local line = lines[i - sr + 1]
-        if not line then
-            break
-        end
+    local loc = math.min(sc, ec)
+    local hic = math.max(sc, ec)
 
-        if preview and ((i == sr and visual and not pcall(string.find, line, str, sc)) or not pcall(string.find, line, str)) then
+    if opts.regex then
+        local noerr, re = pcall(vim.regex, pattern)
+        if not noerr or re == nil then
+            if not opts.preview then
+                error('Failed to compile "' .. pattern .. '" as a Vim regex.')
+            end
             return
         end
-        local start = i == sr and visual and line:find(str, sc) or line:find(str)
 
-        if start then
-            if i == er and ec < start and visual then
+        for i = sr, er do
+            local line = lines[i - sr + 1]
+            if not line then
                 break
             end
-            table.insert(positions, { i, start })
-            if reverse then
-                for j = start - 1, 1, -1 do
+
+            local s, e
+            if (mode_vb or (i == sr and mode_v)) then
+                local offset = (mode_vb and loc or sc) - 1
+                local match
+                noerr, match = pcall(function() return { re:match_line(0, i - 1, offset) } --[[@as (integer?)[] ]] end)
+                if not noerr then
+                    goto continue
+                end
+                s, e = unpack(match)
+                if s ~= nil and e ~= nil then
+                    s = s + offset
+                    e = e + offset
+                end
+            else
+                s, e = re:match_str(line) --[[@as integer?, integer?]]
+            end
+
+            if s == nil or e == nil then
+                vim.print(1)
+                goto continue
+            end
+
+            s = s + 1
+            if mode_v and ((i == er and ec < e) or (i == sr and sc > s)) then
+                vim.print(2)
+                goto continue
+            end
+
+            if mode_vb and (hic < e or loc > s) then
+                vim.print(3)
+                goto continue
+            end
+
+            table.insert(positions, { i, s })
+            if opts.reverse then
+                for j = s - 1, 1, -1 do
                     if line:sub(j, j) == " " then
-                        start = j
+                        s = j
                     else
                         break
                     end
                 end
             end
-            target = math.max(target, start)
+            target = math.max(target, s --[[@as integer]])
+
+            ::continue::
         end
+    else
+        for i = sr, er do
+            local line = lines[i - sr + 1]
+            if not line then
+                break
+            end
+
+            local start = (mode_vb or (i == sr and mode_v)) and line:find(pattern, mode_vb and loc or sc, true) or line:find(pattern, nil, true)
+
+            if start then
+                if i == er and ec < start + #pattern - 1 and mode_v then
+                    goto continue
+                end
+                if mode_vb and (hic < start + #pattern -1 or loc > start) then
+                    goto continue
+                end
+                table.insert(positions, { i, start })
+                if opts.reverse then
+                    for j = start - 1, 1, -1 do
+                        if line:sub(j, j) == " " then
+                            start = j
+                        else
+                            break
+                        end
+                    end
+                end
+                target = math.max(target, start)
+            end
+            ::continue::
+        end
+    end
+
+    if not opts.preview then
+        vim.api.nvim_input('<Esc>')
     end
 
     if target == 0 or #positions == 0 then
@@ -132,29 +280,33 @@ local function align(str, reverse, preview, marks)
         local r, c = unpack(pos)
         local curr = lines[r - sr + 1]
         if c <= target then
-            vim.api.nvim_buf_set_lines(0, r - 1, r, true, {str_insert(curr, c, (' '):rep(target - c + (reverse and 1 or 0)))})
+            vim.api.nvim_buf_set_lines(0, r - 1, r, true, {str_insert(curr, c, (' '):rep(target - c + (opts.reverse and 1 or 0)))})
         else
             vim.api.nvim_buf_set_lines(0, r - 1, r, true, {string.sub(curr, 1, target) .. string.sub(curr, c)})
         end
     end
 
-    if not preview then
-        vim.api.nvim_input('<Esc>')
-    else if marks then
-        for i = sr, er do
-            vim.api.nvim_buf_add_highlight(0, -1, 'Visual', i - 1, 0, -1)
-        end
+    if opts.preview and opts.marks then
+        highlight(sr, sc, er, ec)
     end
+
+    if not opts.preview and opts.callback then
+        vim.schedule(opts.callback)
     end
-    print(' ')
+
+    vim.print(' ')
 
     return 1
 end
 
+---@param str string?
+---@return integer? # Error number
+---@return string? # New string
 local function input(str)
+    str = str or ''
     local ch = vim.fn.getcharstr()
     if ch == vim.api.nvim_replace_termcodes('<Esc>', true, false, true) then
-        print(' ')
+        vim.print(' ')
         return 0, nil
     end
     if ch == vim.api.nvim_replace_termcodes('<CR>', true, false, true) then
@@ -168,95 +320,122 @@ local function input(str)
     end
 end
 
-local function align_wrapper(str, reverse, marks)
-    if marks and marks.sr then
-        local sr, er = marks.sr, marks.er
+---@param pattern string
+---@param opts AlignOptions?
+local function align_wrapper(pattern, opts)
+    opts = opts or {}
+    if opts.marks and opts.marks.sr then
+        local sr, sc, er, ec = opts.marks.sr, opts.marks.sc, opts.marks.er, opts.marks.ec
         if sr == er then
             return
         end
-        for i = sr, er do
-            vim.api.nvim_buf_add_highlight(0, -1, 'Visual', i - 1, 0, -1)
-        end
+        highlight(sr, sc, er, ec)
     end
-    align(str, reverse, false, marks)
+    opts.preview = false
+    align(pattern, opts)
 end
 
-
-local function align_to_char(length, reverse, preview, marks)
-    if marks and marks.sr then
-        local sr, er = marks.sr, marks.er
+---@param opts AlignToCharOptions?
+local function align_to_char(opts)
+    opts = opts or {}
+    if opts.marks and opts.marks.sr then
+        local sr, sc, er, ec = opts.marks.sr, opts.marks.sc, opts.marks.er, opts.marks.ec
         if sr == er then
             return
         end
-        for i = sr, er do
-            vim.api.nvim_buf_add_highlight(0, -1, 'Visual', i - 1, 0, -1)
-        end
+        highlight(sr, sc, er, ec)
     end
-    length = math.max(length, 1)
-    preview = not not preview and length > 1
-    local prompt = 'Enter ' .. (length > 1 and length .. ' characters: ' or 'a character: ')
-    print(prompt)
-    local str = ''
-    while #str < length do
-        vim.cmd[[redraw]]
-        print(prompt .. str)
-        local err, new_str = input(str)
-        if preview then
-            restore()
-        end
+    opts.length = math.max(opts.length or 1, 1)
+    opts.preview = not not opts.preview and opts.length > 1
+    local prompt = 'Enter ' .. (opts.length > 1 and opts.length .. ' characters: ' or 'a character: ')
+    vim.print(prompt)
+    local pattern = ''
+    local cleanup = opts.preview and tmpbuf(opts.marks) or nil
+    vim.cmd.redraw()
+    while #pattern < opts.length do
+        vim.print(prompt .. pattern)
+        local err, new_str = input(pattern)
         if err == 0 then
+            if cleanup then
+                cleanup()
+                cleanup = function() end
+            end
+            vim.api.nvim_input('<Esc>')
             return
         end
         if err == 1 then
             break
         end
-        str = new_str
-        align(escape(str), not not reverse, true, marks)
+        pattern = new_str --[[@as string]]
+
+        if opts.preview then
+            if cleanup then
+                cleanup()
+            end
+            cleanup = tmpbuf(opts.marks)
+            align(pattern, opts)
+        end
+
+        vim.cmd.redraw()
     end
-    align_wrapper(escape(str), not not reverse, marks)
+    if cleanup then
+        cleanup()
+    end
+    align_wrapper(pattern, opts)
 end
 
-local function align_to_string(is_pattern, reverse, preview, marks)
-    if marks and marks.sr then
-        local sr, er = marks.sr, marks.er
+---@param opts AlignOptions?
+local function align_to_string(opts)
+    opts = opts or {}
+    if opts.marks and opts.marks.sr then
+        local sr, sc, er, ec = opts.marks.sr, opts.marks.sc, opts.marks.er, opts.marks.ec
         if sr == er then
             return
         end
-        for i = sr, er do
-            vim.api.nvim_buf_add_highlight(0, -1, 'Visual', i - 1, 0, -1)
-        end
+        highlight(sr, sc, er, ec)
     end
-    preview = not not preview
-    is_pattern = not not is_pattern
-    local prompt = is_pattern and 'Enter pattern: ' or 'Enter string: '
-    print(prompt)
-    local str = ''
-    -- local previews = 0
+    opts.preview = not not opts.preview
+    opts.regex = not not opts.regex
+    local prompt = opts.regex and 'Enter pattern: ' or 'Enter string: '
+    vim.print(prompt)
+    local pattern = ''
+    local cleanup = opts.preview and tmpbuf(opts.marks) or nil
+    vim.cmd.redraw()
     while true do
-        vim.cmd[[redraw]]
-        print(prompt .. str)
-        local err, new_str = input(str)
-        if preview then
-            restore()
-        end
+        vim.print(prompt .. pattern)
+        local err, new_pattern = input(pattern)
         if err == 0 then
-            -- TODO: undo such that no history is kept
-            print(' ')
-            vim.cmd[[redraw]]
+            if cleanup then
+                cleanup()
+                cleanup = function() end
+            end
+            vim.api.nvim_input('<Esc>')
+            vim.print(' ')
             return
         end
         if err == 1 then
             break
         end
-        str = new_str
+        pattern = new_pattern --[[@as string]]
 
-        local escaped = escape(str, is_pattern)
-        align(escaped, not not reverse, true, marks)
+        if opts.preview then
+            if cleanup then
+                cleanup()
+            end
+            cleanup = tmpbuf(opts.marks)
+            opts.preview = true
+            align(pattern, opts)
+        end
+        vim.cmd.redraw()
     end
-    -- TODO: undo such that no history is kept
-    align_wrapper(escape(str, is_pattern), not not reverse, marks)
+    if cleanup then
+        cleanup()
+    end
+    align_wrapper(pattern, opts)
 end
 
+---@param fn function
+---@param opts (AlignOptions | AlignWrapperOptions | AlignToCharOptions)?
 local function operator(fn, opts)
     opts = opts or {}
     local old_func = vim.go.operatorfunc
@@ -271,17 +450,18 @@ local function operator(fn, opts)
             return
         end
 
-        for i = sr, er do
-            vim.api.nvim_buf_add_highlight(0, -1, 'Visual', i - 1, 0, -1)
-        end
+        highlight(sr, sc, er, ec)
 
-        local marks = {sr, sc, er, ec}
+        opts.marks = {sr = sr, sc = sc, er = er, ec = ec}
         if fn == align_to_char then
-            align_to_char(opts.length, opts.reverse, opts.preview, marks)
+            --[[@cast opts AlignToCharOptions]]
+            align_to_char(opts)
         elseif fn == align_to_string then
-            align_to_string(opts.is_pattern, opts.reverse, opts.preview, marks)
+            --[[@cast opts AlignOptions]]
+            align_to_string(opts)
         elseif fn == align_wrapper then
-            align_wrapper(opts.str, opts.reverse, marks)
+            --[[@cast opts AlignWrapperOptions]]
+            align_wrapper(opts.pattern, opts)
         else
             error('Unknown function: ' .. fn)
         end
