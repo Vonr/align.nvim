@@ -4,6 +4,11 @@
 
 align.nvim supports aligning lines to the most feasible leftward or rightmost character, string, or Vim regex.
 
+This plugin has a far amount of [issues](https://github.com/Vonr/align.nvim/issues), and unfortunately my time is limited.
+If you're looking for a more mature alignment plugin, I would suggest using [mini.align](https://github.com/echasnovski/mini.align).
+
+That said, I believe this plugin suits a large portion of needs, and I have been using it since I made it.
+
 ### Installation
 
 Packer
