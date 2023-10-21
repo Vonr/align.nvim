@@ -207,32 +207,31 @@ local function align(pattern, opts)
             end
 
             if s == nil or e == nil then
-                vim.print(1)
                 goto continue
             end
 
             s = s + 1
             if mode_v and ((i == er and ec < e) or (i == sr and sc > s)) then
-                vim.print(2)
                 goto continue
             end
 
             if mode_vb and (hic < e or loc > s) then
-                vim.print(3)
                 goto continue
             end
 
-            table.insert(positions, { i, s })
+            local visual_start = vim.fn.strdisplaywidth(line:sub(0, s))
+            table.insert(positions, { i, visual_start })
             if opts.reverse then
                 for j = s - 1, 1, -1 do
                     if line:sub(j, j) == " " then
                         s = j
+                        visual_start = vim.fn.strdisplaywidth(line:sub(0, s))
                     else
                         break
                     end
                 end
             end
-            target = math.max(target, s --[[@as integer]])
+            target = math.max(target, visual_start --[[@as integer]])
 
             ::continue::
         end
@@ -244,25 +243,27 @@ local function align(pattern, opts)
             end
 
             local start = (mode_vb or (i == sr and mode_v)) and line:find(pattern, mode_vb and loc or sc, true) or line:find(pattern, nil, true)
+            local visual_start = vim.fn.strdisplaywidth(line:sub(0, start))
 
             if start then
-                if i == er and ec < start + #pattern - 1 and mode_v then
+                if i == er and ec < visual_start + #pattern - 1 and mode_v then
                     goto continue
                 end
-                if mode_vb and (hic < start + #pattern -1 or loc > start) then
+                if mode_vb and (hic < visual_start + #pattern -1 or loc > visual_start) then
                     goto continue
                 end
-                table.insert(positions, { i, start })
+                table.insert(positions, { i, visual_start })
                 if opts.reverse then
                     for j = start - 1, 1, -1 do
                         if line:sub(j, j) == " " then
                             start = j
+                            visual_start = vim.fn.strdisplaywidth(line:sub(0, start))
                         else
                             break
                         end
                     end
                 end
-                target = math.max(target, start)
+                target = math.max(target, visual_start)
             end
             ::continue::
         end
