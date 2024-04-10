@@ -99,8 +99,8 @@ local function tmpbuf(marks)
     highlight(sr, sc, er, ec)
 
     return function()
-        vim.api.nvim_buf_delete(tmp, { force = true, unload = false })
         vim.api.nvim_set_current_buf(real)
+        vim.api.nvim_buf_delete(tmp, { force = true, unload = false })
 
         if marks then
             vim.api.nvim_buf_set_mark(real, '[', sr, sc, {})
